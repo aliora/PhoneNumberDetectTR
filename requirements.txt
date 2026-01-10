@@ -1,0 +1,15 @@
+# PaddleOCR Bağımlılıkları
+paddleocr>=2.7.0
+paddlepaddle>=2.5.0
+
+# Görsel İşleme
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Test
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Opsiyonel: GPU desteği için
+# paddlepaddle-gpu>=2.5.0
