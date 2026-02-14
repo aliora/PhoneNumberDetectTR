@@ -33,10 +33,38 @@ class PhoneSettings:
 
 
 @dataclass
+class RedisSettings:
+    """Redis bağlantı ayarları"""
+    host: str = 'localhost'
+    port: int = 6379
+    db: int = 0
+    password: str = None
+    # Queue isimleri
+    input_queue: str = 'ocr:input'
+    output_prefix: str = 'ocr:output'
+    # Sonuç TTL (saniye)
+    result_ttl: int = 3600  # 1 saat
+
+
+@dataclass
+class APISettings:
+    """API servis ayarları"""
+    receiver_host: str = '0.0.0.0'
+    receiver_port: int = 8001
+    sender_poll_interval: float = 1.0  # saniye
+    debug_host: str = '0.0.0.0'
+    debug_port: int = 5001  # Changed from 5000 to avoid conflict with macOS AirPlay
+    max_retries: int = 3
+    request_timeout: int = 30  # saniye
+
+
+@dataclass
 class Settings:
     """Ana konfigürasyon sınıfı"""
     ocr: OCRSettings = field(default_factory=OCRSettings)
     phone: PhoneSettings = field(default_factory=PhoneSettings)
+    redis: RedisSettings = field(default_factory=RedisSettings)
+    api: APISettings = field(default_factory=APISettings)
     
     # Desteklenen görsel formatları
     supported_formats: tuple = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')

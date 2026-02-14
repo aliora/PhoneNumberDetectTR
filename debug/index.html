@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Service Tester - PhoneNumberDetectTR</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Turkish Contract Phone OCR Tester</h1>
+            <p>Test the receiver/sender microservice architecture</p>
+        </header>
+
+        <div class="grid">
+            <!-- Submit Form -->
+            <div class="card">
+                <h2>📤 Submit OCR Job</h2>
+                <form id="submitForm">
+                    <div class="form-group">
+                        <label for="imageUrl">Image URL *</label>
+                        <input 
+                            type="url" 
+                            id="imageUrl" 
+                            name="imageUrl" 
+                            placeholder="https://example.com/contract-image.jpg"
+                            required
+                        >
+                        <small>URL to the contract image with phone number</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="userId">User ID *</label>
+                        <input 
+                            type="text" 
+                            id="userId" 
+                            name="userId" 
+                            placeholder="user123"
+                            required
+                        >
+                        <small>Identifier for the user who sent the image</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="timestamp">Timestamp</label>
+                        <input 
+                            type="datetime-local" 
+                            id="timestamp" 
+                            name="timestamp"
+                        >
+                        <small>When the image was sent (auto-filled with current time)</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        Submit Job
+                    </button>
+                </form>
+
+                <div id="submitResult" class="result-box"></div>
+            </div>
+
+            <!-- Query Result -->
+            <div class="card">
+                <h2>🔎 Query Result</h2>
+                <form id="queryForm">
+                    <div class="form-group">
+                        <label for="taskId">Task ID *</label>
+                        <input 
+                            type="text" 
+                            id="taskId" 
+                            name="taskId" 
+                            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                            required
+                        >
+                        <small>Task ID returned from submit</small>
+                    </div>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-secondary">
+                            Query Once
+                        </button>
+                        <button type="button" id="pollBtn" class="btn btn-info">
+                            Start Polling
+                        </button>
+                    </div>
+                </form>
+
+                <div id="queryResult" class="result-box"></div>
+            </div>
+        </div>
+
+        <!-- Service Status -->
+        <div class="card status-card">
+            <h2>📊 Service Status</h2>
+            <div id="statusInfo" class="status-info">
+                <p>Loading...</p>
+            </div>
+            <button id="refreshStatus" class="btn btn-small">Refresh Status</button>
+        </div>
+
+        <!-- Recent Results -->
+        <div class="card">
+            <h2>📋 Recent Results</h2>
+            <div id="recentResults" class="results-list">
+                <p class="empty-state">No results yet. Submit a job to get started.</p>
+            </div>
+            <button id="refreshResults" class="btn btn-small">Refresh Results</button>
+        </div>
+    </div>
+
+    <script>
+        let pollingInterval = null;
+        let recentTaskIds = [];
+
+        // Set current timestamp on page load
+        document.getElementById('timestamp').value = new Date().toISOString().slice(0, 16);
+
+        // Submit Form Handler
+        document.getElementById('submitForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                image_url: document.getElementById('imageUrl').value,
+                user_id: document.getElementById('userId').value,
+                timestamp: new Date(document.getElementById('timestamp').value).toISOString()
+            };
+
+            const resultDiv = document.getElementById('submitResult');
+            resultDiv.innerHTML = '<div class="loading">Submitting job...</div>';
+
+            try {
+                const response = await fetch('/api/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Auto-fill task ID in query form
+                    document.getElementById('taskId').value = data.task_id;
+                    
+                    // Add to recent tasks
+                    recentTaskIds.unshift(data.task_id);
+                    if (recentTaskIds.length > 10) recentTaskIds.pop();
+                    
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <h3>✅ Job Submitted Successfully</h3>
+                            <p><strong>Task ID:</strong> <code>${data.task_id}</code></p>
+                            <p><strong>Status:</strong> ${data.status}</p>
+                            <p><strong>Queue Size:</strong> ${data.queue_size}</p>
+                            <p><strong>Enqueued At:</strong> ${new Date(data.enqueued_at).toLocaleString()}</p>
+                            <p class="info">✨ Task ID has been auto-filled in the query form</p>
+                        </div>
+                    `;
+                    
+                    // Auto-start polling
+                    setTimeout(() => startPolling(), 1000);
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error">
+                            <h3>❌ Submission Failed</h3>
+                            <p>${data.error || 'Unknown error'}</p>
+                            <pre>${data.details || ''}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h3>❌ Network Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        });
+
+        // Query Form Handler
+        document.getElementById('queryForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await queryResult();
+        });
+
+        async function queryResult() {
+            const taskId = document.getElementById('taskId').value;
+            const resultDiv = document.getElementById('queryResult');
+            
+            resultDiv.innerHTML = '<div class="loading">Querying result...</div>';
+
+            try {
+                const response = await fetch(`/api/result/${taskId}`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    if (data.status === 'processing') {
+                        resultDiv.innerHTML = `
+                            <div class="processing">
+                                <h3>⏳ Processing...</h3>
+                                <p>Job is still being processed. Please wait or poll for updates.</p>
+                            </div>
+                        `;
+                    } else if (data.status === 'completed') {
+                        // Data is flat, not nested under 'result'
+                        resultDiv.innerHTML = `
+                            <div class="success">
+                                <h3>✅ Job Completed</h3>
+                                <div class="result-details">
+                                    <p><strong>Task ID:</strong> <code>${data.task_id}</code></p>
+                                    <p><strong>User ID:</strong> ${data.user_id}</p>
+                                    <p><strong>Image URL:</strong> <a href="${data.image_url}" target="_blank">View Image</a></p>
+                                    <p><strong>Phone Number:</strong> <span class="highlight">${data.phone_number || 'Not found'}</span></p>
+                                    <p><strong>Confidence:</strong> ${(data.confidence * 100).toFixed(1)}%</p>
+                                    <p><strong>Processing Time:</strong> ${data.processing_time}s</p>
+                                    <p><strong>Timestamp:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+                                    <p><strong>Processed At:</strong> ${new Date(data.processed_at).toLocaleString()}</p>
+                                    <details>
+                                        <summary>OCR Text (first 500 chars)</summary>
+                                        <pre>${data.ocr_text || data.ocr_result || 'No OCR text available'}</pre>
+                                    </details>
+                                </div>
+                            </div>
+                        `;
+                        stopPolling();
+                    } else if (data.status === 'error') {
+                        resultDiv.innerHTML = `
+                            <div class="error">
+                                <h3>❌ Job Failed</h3>
+                                <p><strong>Error:</strong> ${data.error || 'Unknown error'}</p>
+                                <p><strong>Task ID:</strong> <code>${data.task_id}</code></p>
+                            </div>
+                        `;
+                        stopPolling();
+                    }
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error">
+                            <h3>❌ Query Failed</h3>
+                            <p>${data.error || 'Unknown error'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h3>❌ Network Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Polling
+        document.getElementById('pollBtn').addEventListener('click', () => {
+            if (pollingInterval) {
+                stopPolling();
+            } else {
+                startPolling();
+            }
+        });
+
+        function startPolling() {
+            const pollBtn = document.getElementById('pollBtn');
+            pollBtn.textContent = 'Stop Polling';
+            pollBtn.classList.add('polling');
+            
+            queryResult(); // Query immediately
+            pollingInterval = setInterval(queryResult, 2000); // Every 2 seconds
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+                
+                const pollBtn = document.getElementById('pollBtn');
+                pollBtn.textContent = 'Start Polling';
+                pollBtn.classList.remove('polling');
+            }
+        }
+
+        // Status Check
+        async function checkStatus() {
+            const statusDiv = document.getElementById('statusInfo');
+            
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                if (response.ok) {
+                    const receiverStatus = data.receiver_service ? data.receiver_service.status : 'unknown';
+                    const redisStatus = data.receiver_service ? (data.receiver_service.redis_connected ? 'connected' : 'disconnected') : 'unknown';
+                    const queueSize = data.receiver_service ? data.receiver_service.queue_size : '?';
+                    
+                    statusDiv.innerHTML = `
+                        <div class="status-grid">
+                            <div class="status-item">
+                                <span class="status-label">Debug Server:</span>
+                                <span class="status-badge success">${data.debug_server}</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Receiver Service:</span>
+                                <span class="status-badge ${receiverStatus === 'healthy' ? 'success' : 'error'}">${receiverStatus}</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Redis:</span>
+                                <span class="status-badge ${redisStatus === 'connected' ? 'success' : 'error'}">${redisStatus}</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Queue Size:</span>
+                                <span class="status-value">${queueSize}</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Cached Results:</span>
+                                <span class="status-value">${data.cached_results}</span>
+                            </div>
+                        </div>
+                        <p class="status-timestamp">Last checked: ${new Date(data.timestamp).toLocaleString()}</p>
+                    `;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<p class="error">Failed to fetch status: ${error.message}</p>`;
+            }
+        }
+
+        document.getElementById('refreshStatus').addEventListener('click', checkStatus);
+
+        // Recent Results
+        async function loadRecentResults() {
+            const resultsDiv = document.getElementById('recentResults');
+            
+            try {
+                const response = await fetch('/api/results');
+                const data = await response.json();
+
+                if (Object.keys(data).length === 0) {
+                    resultsDiv.innerHTML = '<p class="empty-state">No results yet. Submit a job to get started.</p>';
+                    return;
+                }
+
+                let html = '<div class="results-grid">';
+                
+                for (const [taskId, result] of Object.entries(data)) {
+                    const statusClass = result.status === 'completed' ? 'success' : 
+                                      result.status === 'error' ? 'error' : 
+                                      result.status === 'pending' ? 'processing' : '';
+                    
+                    html += `
+                        <div class="result-item ${statusClass}">
+                            <p><strong>Task:</strong> <code>${taskId.slice(0, 8)}...</code></p>
+                            <p><strong>Status:</strong> ${result.status}</p>
+                            ${result.phone_number ? `<p><strong>Phone:</strong> ${result.phone_number}</p>` : ''}
+                            ${result.user_id ? `<p><strong>User:</strong> ${result.user_id}</p>` : ''}
+                            <button onclick="loadTaskToQuery('${taskId}')" class="btn btn-tiny">View Details</button>
+                        </div>
+                    `;
+                }
+                
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `<p class="error">Failed to load results: ${error.message}</p>`;
+            }
+        }
+
+        window.loadTaskToQuery = function(taskId) {
+            document.getElementById('taskId').value = taskId;
+            queryResult();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        document.getElementById('refreshResults').addEventListener('click', loadRecentResults);
+
+        // Initialize on page load
+        checkStatus();
+        setInterval(checkStatus, 10000); // Auto-refresh status every 10s
+        loadRecentResults();
+        setInterval(loadRecentResults, 5000); // Auto-refresh results every 5s
+    </script>
+</body>
+</html>

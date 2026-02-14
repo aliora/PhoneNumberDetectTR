@@ -7,6 +7,19 @@ opencv-python>=4.8.0
 numpy>=1.24.0
 Pillow>=10.0.0
 
+# API ve Web Framework
+fastapi>=0.109.0
+uvicorn>=0.27.0
+flask>=3.0.0
+aiohttp>=3.9.0
+python-multipart>=0.0.6
+
+# Redis Queue
+redis>=5.0.0
+
+# HTTP İstekleri
+requests>=2.31.0
+
 # Test
 pytest>=7.4.0
 pytest-cov>=4.1.0
